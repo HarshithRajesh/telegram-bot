@@ -109,8 +109,31 @@ def create_calendar(year, month, category, message_type):
     """Create a calendar keyboard for date selection"""
     keyboard = []
     
-    # Header with month/year
-    month_name = calendar.month_name[month]
+    # Create a mapping for message types to avoid long callback data
+    message_mapping = {
+        'ವ್ಯಾನ್ ಸಮಯಕ್ಕೆ ಬರುತ್ತದೆ': 'v1',
+        'ವ್ಯಾನ್ ತಡವಾಗಿ ಬರುತ್ತದೆ': 'v2',
+        'ವ್ಯಾನ್ ಬರುವುದಿಲ್ಲ': 'v3',
+        'ವ್ಯಾನ್ ಮೈಂಟೆನೆನ್ಸ್': 'v4',
+        'ಶಾಲೆ ತೆರೆದಿದೆ': 's1',
+        'ಶಾಲೆ ಮುಚ್ಚಿದೆ - ರಜೆ': 's2',
+        'ಶಾಲೆ ಮುಚ್ಚಿದೆ - ಕಾರ್ಯಕ್ರಮ': 's3',
+        'ಶಾಲೆ ಅರ್ಧ ದಿನ': 's4',
+        'ಶುಲ್ಕ ಪಾವತಿಸಿದೆ': 'f1',
+        'ಶುಲ್ಕ ಬಾಕಿ ಇದೆ': 'f2',
+        'ಶುಲ್ಕ ದಿನಾಂಕ ವಿಸ್ತರಿಸಲಾಗಿದೆ': 'f3',
+        'ಹೊಸ ಶುಲ್ಕ ರಚನೆ': 'f4'
+    }
+    
+    short_message_type = message_mapping.get(message_type, 'unk')
+    
+    # Header with month/year in Kannada
+    month_names_kannada = {
+        1: "ಜನವರಿ", 2: "ಫೆಬ್ರವರಿ", 3: "ಮಾರ್ಚ್", 4: "ಏಪ್ರಿಲ್",
+        5: "ಮೇ", 6: "ಜೂನ್", 7: "ಜುಲೈ", 8: "ಆಗಸ್ಟ್",
+        9: "ಸೆಪ್ಟೆಂಬರ್", 10: "ಅಕ್ಟೋಬರ್", 11: "ನವೆಂಬರ್", 12: "ಡಿಸೆಂಬರ್"
+    }
+    month_name = month_names_kannada.get(month, calendar.month_name[month])
     keyboard.append([InlineKeyboardButton(f"📅 {month_name} {year}", callback_data='ignore')])
     
     # Navigation buttons
@@ -120,9 +143,9 @@ def create_calendar(year, month, category, message_type):
     next_year = year if month < 12 else year + 1
     
     keyboard.append([
-        InlineKeyboardButton("⬅️", callback_data=f'cal_prev_{prev_year}_{prev_month}_{category}_{message_type}'),
-        InlineKeyboardButton("📅 ಇಂದು", callback_data=f'cal_today_{category}_{message_type}'),
-        InlineKeyboardButton("➡️", callback_data=f'cal_next_{next_year}_{next_month}_{category}_{message_type}')
+        InlineKeyboardButton("⬅️", callback_data=f'cp_{prev_year}_{prev_month}_{category}_{short_message_type}'),
+        InlineKeyboardButton("📅 ಇಂದು", callback_data=f'ct_{category}_{short_message_type}'),
+        InlineKeyboardButton("➡️", callback_data=f'cn_{next_year}_{next_month}_{category}_{short_message_type}')
     ])
     
     # Day headers
@@ -136,7 +159,8 @@ def create_calendar(year, month, category, message_type):
         InlineKeyboardButton("ಭ", callback_data='ignore')
     ])
     
-    # Calendar days
+    # Calendar days with highlighting for today
+    today = datetime.now()
     cal = calendar.monthcalendar(year, month)
     for week in cal:
         row = []
@@ -144,8 +168,15 @@ def create_calendar(year, month, category, message_type):
             if day == 0:
                 row.append(InlineKeyboardButton(" ", callback_data='ignore'))
             else:
-                callback_data = f'cal_select_{year}_{month:02d}_{day:02d}_{category}_{message_type}'
-                row.append(InlineKeyboardButton(str(day), callback_data=callback_data))
+                # Highlight today's date
+                if (year == today.year and month == today.month and day == today.day):
+                    button_text = f"🔴{day}"
+                else:
+                    button_text = str(day)
+                
+                # Use shorter callback data
+                callback_data = f'cs_{year}_{month:02d}_{day:02d}_{category}_{short_message_type}'
+                row.append(InlineKeyboardButton(button_text, callback_data=callback_data))
         keyboard.append(row)
     
     # Back button
@@ -272,8 +303,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text("🗑️ ಶುಲ್ಕ ವೇಳಾಪಟ್ಟಿ ಅಳಿಸಲಾಗಿದೆ", reply_markup=reply_markup)
     
-    # Calendar navigation
-    elif query.data.startswith('cal_'):
+    # Calendar navigation with new format
+    elif query.data.startswith(('cp_', 'cn_', 'ct_', 'cs_')):
         await handle_calendar_callback(update, context)
     
     else:
@@ -283,27 +314,47 @@ async def handle_calendar_callback(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     data_parts = query.data.split('_')
     
-    if data_parts[1] == 'prev':
+    # Reverse mapping for message types
+    reverse_mapping = {
+        'v1': 'ವ್ಯಾನ್ ಸಮಯಕ್ಕೆ ಬರುತ್ತದೆ',
+        'v2': 'ವ್ಯಾನ್ ತಡವಾಗಿ ಬರುತ್ತದೆ',
+        'v3': 'ವ್ಯಾನ್ ಬರುವುದಿಲ್ಲ',
+        'v4': 'ವ್ಯಾನ್ ಮೈಂಟೆನೆನ್ಸ್',
+        's1': 'ಶಾಲೆ ತೆರೆದಿದೆ',
+        's2': 'ಶಾಲೆ ಮುಚ್ಚಿದೆ - ರಜೆ',
+        's3': 'ಶಾಲೆ ಮುಚ್ಚಿದೆ - ಕಾರ್ಯಕ್ರಮ',
+        's4': 'ಶಾಲೆ ಅರ್ಧ ದಿನ',
+        'f1': 'ಶುಲ್ಕ ಪಾವತಿಸಿದೆ',
+        'f2': 'ಶುಲ್ಕ ಬಾಕಿ ಇದೆ',
+        'f3': 'ಶುಲ್ಕ ದಿನಾಂಕ ವಿಸ್ತರಿಸಲಾಗಿದೆ',
+        'f4': 'ಹೊಸ ಶುಲ್ಕ ರಚನೆ'
+    }
+    
+    if data_parts[0] == 'cp':  # cal_prev
         # Previous month
-        year, month, category, message_type = int(data_parts[2]), int(data_parts[3]), data_parts[4], '_'.join(data_parts[5:])
+        year, month, category, short_message = int(data_parts[1]), int(data_parts[2]), data_parts[3], data_parts[4]
+        message_type = reverse_mapping.get(short_message, 'Unknown')
         await show_calendar(update, context, category, message_type, year, month)
     
-    elif data_parts[1] == 'next':
+    elif data_parts[0] == 'cn':  # cal_next
         # Next month
-        year, month, category, message_type = int(data_parts[2]), int(data_parts[3]), data_parts[4], '_'.join(data_parts[5:])
+        year, month, category, short_message = int(data_parts[1]), int(data_parts[2]), data_parts[3], data_parts[4]
+        message_type = reverse_mapping.get(short_message, 'Unknown')
         await show_calendar(update, context, category, message_type, year, month)
     
-    elif data_parts[1] == 'today':
+    elif data_parts[0] == 'ct':  # cal_today
         # Today
         today = datetime.now()
-        category, message_type = data_parts[2], '_'.join(data_parts[3:])
+        category, short_message = data_parts[1], data_parts[2]
+        message_type = reverse_mapping.get(short_message, 'Unknown')
         selected_date = today.strftime('%d/%m/%Y')
         await save_scheduled_message(update, context, category, message_type, selected_date)
     
-    elif data_parts[1] == 'select':
+    elif data_parts[0] == 'cs':  # cal_select
         # Date selected
-        year, month, day = int(data_parts[2]), int(data_parts[3]), int(data_parts[4])
-        category, message_type = data_parts[5], '_'.join(data_parts[6:])
+        year, month, day = int(data_parts[1]), int(data_parts[2]), int(data_parts[3])
+        category, short_message = data_parts[4], data_parts[5]
+        message_type = reverse_mapping.get(short_message, 'Unknown')
         selected_date = f"{day:02d}/{month:02d}/{year}"
         await save_scheduled_message(update, context, category, message_type, selected_date)
 
