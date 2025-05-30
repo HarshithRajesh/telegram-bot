@@ -127,7 +127,6 @@ def create_calendar(year, month, category, message_type):
     
     short_message_type = message_mapping.get(message_type, 'unk')
     
-    # Header with month/year in Kannada
     month_names_kannada = {
         1: "ಜನವರಿ", 2: "ಫೆಬ್ರವರಿ", 3: "ಮಾರ್ಚ್", 4: "ಏಪ್ರಿಲ್",
         5: "ಮೇ", 6: "ಜೂನ್", 7: "ಜುಲೈ", 8: "ಆಗಸ್ಟ್",
